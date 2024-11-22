@@ -78,16 +78,18 @@ int adc_channel_count = sizeof(adc_dma_result) / sizeof(adc_dma_result[0]);
 // store the result after conversion complete
 char dma_result_buffer[100];
 char buffer[50];
+double test;
 uint64_t adc_count;
 uint64_t adc_count2;
 
 #define N 5  // Number of points for the moving average
 
 typedef struct {
-	double buffer[N];
+    double* buffer;  // Pointer for dynamic allocation
     int index;
     int count;
     double sum;
+    uint8_t frame;
 } MovingAverage;
 
 typedef struct {
@@ -102,7 +104,9 @@ typedef struct {
 
 // Initialize the Moving Average structure
 void initMovingAverage(MovingAverage* ma,uint8_t frame) {
-    for (int i = 0; i < frame; i++) {
+	 ma->buffer = (double*)malloc(frame * sizeof(double)); // Allocate memory
+	ma->frame=frame;
+    for (int i = 0; i < ma->frame; i++) {
         ma->buffer[i] = 0;
     }
     ma->index = 0;
@@ -120,10 +124,10 @@ double addValue(MovingAverage* ma, float value) {
     ma->sum += value;
 
     // Move the index in a circular manner
-    ma->index = (ma->index + 1) % N;
+    ma->index = (ma->index + 1) % ma->frame;
 
     // Keep track of the number of values added (up to N)
-    if (ma->count < N) {
+    if (ma->count < ma->frame) {
         ma->count++;
     }
 
@@ -143,7 +147,7 @@ double resultt;
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-double v_to_c(double V){
+double v_to_c1(double V){
 	double a= -0.21694;
 	double b= 8.57057;
 	double c= -0.31640;
@@ -152,12 +156,27 @@ double v_to_c(double V){
 	if(I<0){
 		I=0;
 	}
-	return I*7;
+	return I;
+}
+
+
+double v_to_c2(double V){
+	double a= 15.01681;
+	double b= -44.34005;
+	double c= 43.69469;
+	double d= 44.55270;
+	double e= 1.87532;
+
+	double I= a*V*V*V*V+b*V*V*V+c*V*V+d*V+e;
+	if(I<0){
+		I=0;
+	}
+	return I;
 }
 
 double v_to_v(double V){
 	double m= 150.0/(2.641);
-	double c= 0;
+	double c= -10;
 	return (m*(V)+c);
 }
 
@@ -170,12 +189,12 @@ double v_to_v(double V){
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	initMovingAverage(&V1.ADC_MA,5);
-	initMovingAverage(&V1.OUTPUT_MA,20);
-	initMovingAverage(&I1.ADC_MA,5);
-	initMovingAverage(&I1.OUTPUT_MA,20);
-	initMovingAverage(&I2.ADC_MA, 5);
-	initMovingAverage(&I2.OUTPUT_MA,20);
+	initMovingAverage(&V1.ADC_MA,100);
+	initMovingAverage(&V1.OUTPUT_MA,100);
+	initMovingAverage(&I1.ADC_MA,100);
+	initMovingAverage(&I1.OUTPUT_MA,100);
+	initMovingAverage(&I2.ADC_MA, 100);
+	initMovingAverage(&I2.OUTPUT_MA,100);
 
   /* USER CODE END 1 */
 
@@ -204,47 +223,32 @@ int main(void)
   MX_RTC_Init();
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
-	HAL_TIM_Base_Start_IT(&htim1);
+HAL_TIM_Base_Start_IT(&htim1);
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 //	HAL_ADC_Start_DMA(&hadc1, (uint32_t *) adc_dma_result , 1);
-	HAL_ADC_Start_DMA(&hadc1, (uint32_t *) adc_dma_result , 2);
+	HAL_ADC_Start_DMA(&hadc1, (uint32_t *) adc_dma_result , 3);
 
 	while (1) {
 //	HAL_ADC_Start_DMA(&hadc1, (uint32_t *) adc_dma_result , adc_channel_count);
     /* USER CODE END WHILE */
+		V1.raw=v_to_v(V1.adc_result);
+		I1.raw= v_to_c1(I1.adc_result);
+		I2.raw= v_to_c2(I2.adc_result);
 
+		V1.actual=addValue(&V1.OUTPUT_MA, V1.raw);
+		I1.actual = addValue(&I1.OUTPUT_MA, I1.raw);
+		I2.actual = addValue(&I2.OUTPUT_MA, I2.raw);
     /* USER CODE BEGIN 3 */
 
 		HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN);
 		HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
 
-		sprintf(buffer, "DTime: %02d:%02d:%02d:%02ld, ", sTime.Hours,sTime.Minutes, sTime.Seconds, abs(sTime.SubSeconds-255));
 
-		// Transmit the string over UART
-		HAL_UART_Transmit(&huart1, (uint8_t*) buffer, strlen(buffer), HAL_MAX_DELAY);
-
-
-//	   HAL_UART_Transmit(&huart1, data, 12, 10);
-		// when adc_conv_complete_flag is set to 1,
-//	         // that means DMA conversion is completed
-//	         if(adc_conv_complete_flag == 1){
-//	  	  // this snprintf function helps to convert the adc_dma_result array
-//	  	  // into string and store in dma_result_buffer character array
-
-		 sprintf(dma_result_buffer, "CH_1: %d, CH_2: %.2f, CH_3: %.2f, CH_4: %d, CH5: %.2f, CH6: %.2f\r\n",adc_dma_result[0],V1.adc_result,V1.actual,adc_dma_result[1],I1.adc_result,I1.actual);
-//	  	  // we just send the dma_result_buffer character array with ADC values
-//	  	  // to our computer serial terminal software (Tera Term) using UART peripheral of STM32
-	  	  HAL_UART_Transmit(&huart1, (uint8_t *) dma_result_buffer, strlen(dma_result_buffer), HAL_MAX_DELAY);
-//	  	  // adc_conv_complete_flag variable is set to 0, because,
-//	           // we alert this flag variable for new DMA conversion completion
-//	  	 adc_conv_complete_flag = 0;
-//	  	 HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-//	          // delay for 500 Milliseconds
-	          HAL_Delay(50);
+//		HAL_Delay(50);
 //  }
 
 	}
@@ -311,7 +315,6 @@ static void MX_ADC1_Init(void)
   /* USER CODE END ADC1_Init 0 */
 
   ADC_ChannelConfTypeDef sConfig = {0};
-  ADC_InjectionConfTypeDef sConfigInjected = {0};
 
   /* USER CODE BEGIN ADC1_Init 1 */
 
@@ -328,7 +331,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc1.Init.NbrOfConversion = 2;
+  hadc1.Init.NbrOfConversion = 3;
   hadc1.Init.DMAContinuousRequests = ENABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
@@ -355,27 +358,11 @@ static void MX_ADC1_Init(void)
     Error_Handler();
   }
 
-  /** Configures for the selected ADC injected channel its corresponding rank in the sequencer and its sample time
+  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
   */
-  sConfigInjected.InjectedChannel = ADC_CHANNEL_0;
-  sConfigInjected.InjectedRank = 1;
-  sConfigInjected.InjectedNbrOfConversion = 2;
-  sConfigInjected.InjectedSamplingTime = ADC_SAMPLETIME_480CYCLES;
-  sConfigInjected.ExternalTrigInjecConvEdge = ADC_EXTERNALTRIGINJECCONVEDGE_NONE;
-  sConfigInjected.ExternalTrigInjecConv = ADC_INJECTED_SOFTWARE_START;
-  sConfigInjected.AutoInjectedConv = DISABLE;
-  sConfigInjected.InjectedDiscontinuousConvMode = DISABLE;
-  sConfigInjected.InjectedOffset = 0;
-  if (HAL_ADCEx_InjectedConfigChannel(&hadc1, &sConfigInjected) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configures for the selected ADC injected channel its corresponding rank in the sequencer and its sample time
-  */
-  sConfigInjected.InjectedChannel = ADC_CHANNEL_1;
-  sConfigInjected.InjectedRank = 2;
-  if (HAL_ADCEx_InjectedConfigChannel(&hadc1, &sConfigInjected) != HAL_OK)
+  sConfig.Channel = ADC_CHANNEL_2;
+  sConfig.Rank = 3;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
   }
@@ -590,15 +577,19 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) { //5ms
 
 	static uint8_t count;
 	count++;
-	V1.raw=v_to_v(V1.adc_result);
-	I1.raw= v_to_c(I1.adc_result);
-	I2.raw= v_to_c(I2.adc_result);
 
-	V1.actual=addValue(&V1.OUTPUT_MA, V1.raw);
-	I1.actual = addValue(&I1.OUTPUT_MA, I1.raw);
-	I2.actual = addValue(&I2.OUTPUT_MA, I2.raw);
 
-	if (count >= 200) {
+	if (count >= 10) {
+	sprintf(buffer, "DTime: %02d:%02d:%02d:%03ld, ", sTime.Hours,sTime.Minutes, sTime.Seconds, abs(sTime.SubSeconds-255));
+
+		// Transmit the string over UART
+		HAL_UART_Transmit(&huart1, (uint8_t*) buffer, strlen(buffer), HAL_MAX_DELAY);
+
+
+		test=(adc_dma_result[0]/4095.0)*3;
+		sprintf(dma_result_buffer, "CH_1: %.2f, CH_2: %2.2f, CH_3: %02d, CH_4: %2.2f, CH5: %02d, CH6: %2.2f\r\n",test,V1.actual,adc_dma_result[1],I1.actual,adc_dma_result[2],I2.actual);
+
+		HAL_UART_Transmit(&huart1, (uint8_t*) dma_result_buffer,strlen(dma_result_buffer), HAL_MAX_DELAY);
 //		adc_count2=adc_count;
 		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 //		adc_count=0;
