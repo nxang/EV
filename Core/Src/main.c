@@ -23,7 +23,8 @@
 /* USER CODE BEGIN Includes */
 #include "stdio.h"
 #include "string.h"
-
+#define HEAD 0x02
+#define FOOTER 0x03
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,6 +46,8 @@
 ADC_HandleTypeDef hadc1;
 DMA_HandleTypeDef hdma_adc1;
 
+I2C_HandleTypeDef hi2c1;
+
 RTC_HandleTypeDef hrtc;
 
 TIM_HandleTypeDef htim1;
@@ -64,6 +67,7 @@ static void MX_USART1_UART_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_RTC_Init(void);
 static void MX_TIM1_Init(void);
+static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 
 
@@ -76,11 +80,15 @@ int adc_channel_count = sizeof(adc_dma_result) / sizeof(adc_dma_result[0]);
 
 // This character buffer array will
 // store the result after conversion complete
-char dma_result_buffer[100];
+
+char dma_result_buffer[50];  // Adjust size based on your data
+char transmit_buffer[60];    // Larger size to accommodate header and footer
 char buffer[50];
 double test;
-uint64_t adc_count;
+uint32_t adc_count;
 uint64_t adc_count2;
+#define SLAVE_ADDRESS 0x08 // I2C slave address (Arduino)
+uint8_t data[] = "Hello Arduino!"; // Data to send
 
 #define N 5  // Number of points for the moving average
 
@@ -222,6 +230,7 @@ int main(void)
   MX_ADC1_Init();
   MX_RTC_Init();
   MX_TIM1_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 HAL_TIM_Base_Start_IT(&htim1);
 
@@ -230,28 +239,42 @@ HAL_TIM_Base_Start_IT(&htim1);
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 //	HAL_ADC_Start_DMA(&hadc1, (uint32_t *) adc_dma_result , 1);
-	HAL_ADC_Start_DMA(&hadc1, (uint32_t *) adc_dma_result , 3);
+//	HAL_ADC_Start_DMA(&hadc1, (uint32_t *) adc_dma_result , 3);
 
 	while (1) {
+
 //	HAL_ADC_Start_DMA(&hadc1, (uint32_t *) adc_dma_result , adc_channel_count);
     /* USER CODE END WHILE */
-		V1.raw=v_to_v(V1.adc_result);
-		I1.raw= v_to_c1(I1.adc_result);
-		I2.raw= v_to_c2(I2.adc_result);
 
-		V1.actual=addValue(&V1.OUTPUT_MA, V1.raw);
-		I1.actual = addValue(&I1.OUTPUT_MA, I1.raw);
-		I2.actual = addValue(&I2.OUTPUT_MA, I2.raw);
     /* USER CODE BEGIN 3 */
-
-		HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN);
-		HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
-
-
-//		HAL_Delay(50);
-//  }
-
-	}
+		adc_dma_result[0]++;
+		adc_dma_result[1]+=2;
+		adc_dma_result[2]+=4;
+////		adc_count++;
+////		    HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN);
+////		    HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
+////
+////		    // Create payload
+////		    sprintf(dma_result_buffer, "%d \n", adc_count);
+////
+////		    // Wrap payload with header and footer
+////		    transmit_buffer[0] = HEAD;
+////		    strcpy(&transmit_buffer[1], dma_result_buffer);  // Copy payload after header
+////		    transmit_buffer[strlen(dma_result_buffer) + 1] = FOOTER;
+////		    transmit_buffer[strlen(dma_result_buffer) + 2] = '\0';  // Null-terminate
+////
+//		V1.actual+=0.8;
+//		I1.actual+=0.4;
+//		I2.actual+=1.1;
+////		    // Transmit wrapped data
+		sprintf(dma_result_buffer, "%.2f,%2.2f,%.2f,%2.2f",V1.raw,V1.actual,I1.raw,I1.actual);
+		transmit_buffer[0] = HEAD;                                 // Add header
+		strcpy(&transmit_buffer[1], dma_result_buffer);              // Copy payload
+		transmit_buffer[strlen(dma_result_buffer) + 1] = FOOTER;     // Add footer
+		transmit_buffer[strlen(dma_result_buffer) + 2] = '\0';       // Null-terminate
+		HAL_UART_Transmit(&huart1, (uint8_t*)transmit_buffer, strlen(transmit_buffer), HAL_MAX_DELAY);
+		 HAL_Delay(20);
+		}
   /* USER CODE END 3 */
 }
 
@@ -369,6 +392,40 @@ static void MX_ADC1_Init(void)
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
+
+}
+
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.ClockSpeed = 100000;
+  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
 
 }
 
@@ -497,7 +554,7 @@ static void MX_USART1_UART_Init(void)
 
   /* USER CODE END USART1_Init 1 */
   huart1.Instance = USART1;
-  huart1.Init.BaudRate = 921600;
+  huart1.Init.BaudRate = 115200;
   huart1.Init.WordLength = UART_WORDLENGTH_8B;
   huart1.Init.StopBits = UART_STOPBITS_1;
   huart1.Init.Parity = UART_PARITY_NONE;
@@ -544,6 +601,7 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
@@ -564,12 +622,6 @@ static void MX_GPIO_Init(void)
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
 	// I set adc_conv_complete_flag variable to 1 when,
 	// HAL_ADC_ConvCpltCallback function is call.
-		V1.average = addValue(&V1.ADC_MA, adc_dma_result[0]);
-		V1.adc_result = (V1.average / 4095.0) * 3.0;
-		I1.average = addValue(&I1.ADC_MA, adc_dma_result[1]);
-		I1.adc_result = (I1.average / 4095.0) * 3.0;
-		I2.average = addValue(&I2.ADC_MA, adc_dma_result[2]);
-		I2.adc_result = (I2.average / 4095.0) * 3.0;
 
 }
 
@@ -577,22 +629,32 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) { //5ms
 
 	static uint8_t count;
 	count++;
+	V1.average = addValue(&V1.ADC_MA, adc_dma_result[0]);
+			V1.adc_result = (V1.average / 4095.0) * 3.0;
+			I1.average = addValue(&I1.ADC_MA, adc_dma_result[1]);
+			I1.adc_result = (I1.average / 4095.0) * 3.0;
+			I2.average = addValue(&I2.ADC_MA, adc_dma_result[2]);
+			I2.adc_result = (I2.average / 4095.0) * 3.0;
+			V1.raw=v_to_v(V1.adc_result);
+			I1.raw= v_to_c1(I1.adc_result);
+			I2.raw= v_to_c2(I2.adc_result);
 
+			V1.actual=addValue(&V1.OUTPUT_MA, V1.raw);
+			I1.actual = addValue(&I1.OUTPUT_MA, I1.raw);
+			I2.actual = addValue(&I2.OUTPUT_MA, I2.raw);
 
 	if (count >= 10) {
-	sprintf(buffer, "DTime: %02d:%02d:%02d:%03ld, ", sTime.Hours,sTime.Minutes, sTime.Seconds, abs(sTime.SubSeconds-255));
+//	sprintf(buffer, "DTime: %02d:%02d:%02d:%03ld, ", sTime.Hours,sTime.Minutes, sTime.Seconds, abs(sTime.SubSeconds-255));
 
 		// Transmit the string over UART
-		HAL_UART_Transmit(&huart1, (uint8_t*) buffer, strlen(buffer), HAL_MAX_DELAY);
+//		HAL_UART_Transmit(&huart1, (uint8_t*) buffer, strlen(buffer), HAL_MAX_DELAY);
+
+//		test = (adc_dma_result[0] / 4095.0) * 3;
 
 
-		test=(adc_dma_result[0]/4095.0)*3;
-		sprintf(dma_result_buffer, "CH_1: %.2f, CH_2: %2.2f, CH_3: %02d, CH_4: %2.2f, CH5: %02d, CH6: %2.2f\r\n",test,V1.actual,adc_dma_result[1],I1.actual,adc_dma_result[2],I2.actual);
-
-		HAL_UART_Transmit(&huart1, (uint8_t*) dma_result_buffer,strlen(dma_result_buffer), HAL_MAX_DELAY);
 //		adc_count2=adc_count;
-		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 //		adc_count=0;
+		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 		count = 0;
 	}
 //	adc_dma_result[0]+=3;
